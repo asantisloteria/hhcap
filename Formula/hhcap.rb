@@ -28,9 +28,11 @@ class Hhcap < Formula
     SH
   end
 
+  # launchd ejecuta la app directamente para que `brew services` la vea viva; se reinicia solo si se cae
+  # (al elegir «Salir» no vuelve hasta el próximo inicio de sesión).
   service do
-    run opt_bin/"hhcap-menu"
-    keep_alive false
+    run opt_prefix/"HHCap.app/Contents/MacOS/hhcap-menu"
+    keep_alive successful_exit: false
     run_at_load true
   end
 

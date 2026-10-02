@@ -208,7 +208,8 @@ def _cli(argv):
             return 0
         p = Path(a.settings)
         settings = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
-        if p.exists():
+        # El respaldo se hace una sola vez: guarda la configuración de antes de hhcap.
+        if p.exists() and not Path(str(p) + ".bak-hhcap").exists():
             shutil.copy2(str(p), str(p) + ".bak-hhcap")
         settings = hook.fusionar(settings, cmd) if a.accion == "install" else hook.quitar(settings)
         p.parent.mkdir(parents=True, exist_ok=True)
