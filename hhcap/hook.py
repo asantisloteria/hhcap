@@ -12,15 +12,10 @@ BLOQUEO = ("{B}{R}⏰ Fuera de horario{X} {A}· horas extras al {tipo}{X}\n"
            "  {G}✘ ¿No has marcado? Hazlo primero en la app de GeoVictoria.{X}")
 
 
-def _notificar(titulo, texto):
-    """Aviso nativo de macOS, sin esperar (no suma latencia al hook)."""
-    import subprocess
-    if sys.platform != "darwin":
-        return
-    script = 'display notification "%s" with title "%s" sound name "Glass"' % (
-        texto.replace('"', "'"), titulo.replace('"', "'"))
-    subprocess.Popen(["osascript", "-e", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True)
+def _avisar_menu(tipo):
+    """HHCap.app vigila este archivo: despliega el globo bajo la pastilla y envía la notificación."""
+    from .core import _escribir_json, ahora, home
+    _escribir_json(home() / "bloqueo.json", {"ts": ahora().isoformat(), "tipo": tipo})
 
 
 def _leer_stdin():
@@ -44,7 +39,7 @@ def prompt():
         from .core import simulacion
         if simulacion():
             reason += "\n  " + G + "[simulado: %s · ! hhcap simular --off]" % r["ahora"][11:16] + X
-        _notificar("⏰ Fuera de horario", "Marca entrada en GeoVictoria y ejecuta: hhcap marque-entrada")
+        _avisar_menu(r["tipo"])
         print(json.dumps({"continue": False, "stopReason": reason}, ensure_ascii=False))
     elif r.get("aviso"):
         print(json.dumps({"systemMessage": r["aviso"]}, ensure_ascii=False))

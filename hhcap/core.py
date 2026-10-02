@@ -194,7 +194,7 @@ def _parse_hora(s, t):
     return v - timedelta(days=1) if v > t else v
 
 
-def marcar_entrada(hora=None):
+def marcar_entrada(hora=None, motivo=None):
     t = ahora()
     cfg, st = cargar_config(), cargar_state()
     r = calcular(t, cfg, st)
@@ -206,6 +206,8 @@ def marcar_entrada(hora=None):
     if en_jornada(inicio, cfg) and en_jornada(t, cfg):
         return False, "Estás dentro de la jornada; no corresponde abrir hora extra."
     st["extra"] = {"inicio": inicio.isoformat(), "confirmado_en": t.isoformat()}
+    if motivo:
+        st["extra"]["motivo"] = motivo
     guardar_state(st)
     registrar("confirma_entrada", inicio=inicio.isoformat())
     return True, "Hora extra abierta desde %s (%s)." % (inicio.strftime("%H:%M"), tipo_extra(inicio.date(), cfg))
@@ -214,6 +216,8 @@ def marcar_entrada(hora=None):
 def cerrar_extra(st, t, fin=None, olvidada=False):
     extra = st["extra"]
     datos = {"inicio": extra["inicio"], "fin": fin.isoformat() if fin else None}
+    if extra.get("motivo"):
+        datos["motivo"] = extra["motivo"]
     if olvidada:
         datos["motivo"] = "olvidada"
     registrar("confirma_salida", **datos)
@@ -221,7 +225,7 @@ def cerrar_extra(st, t, fin=None, olvidada=False):
     guardar_state(st)
 
 
-def marcar_salida(hora=None):
+def marcar_salida(hora=None, motivo=None):
     t = ahora()
     cfg, st = cargar_config(), cargar_state()
     extra = st.get("extra")
@@ -236,6 +240,8 @@ def marcar_salida(hora=None):
     inicio = datetime.fromisoformat(extra["inicio"])
     if fin <= inicio:
         return False, "La salida (%s) no puede ser anterior a la entrada (%s)." % (fin, inicio)
+    if motivo:
+        extra["motivo"] = motivo
     cerrar_extra(st, t, fin)
     mins = sum((b - a).total_seconds() for a, b, _ in tramos_extra(inicio, fin, cfg)) // 60
     return True, "Hora extra cerrada: %s → %s (%s fuera de jornada)." % (
@@ -252,11 +258,19 @@ def fmt_min(m):
 def bloques_semana(dia):
     """Bloques cerrados con inicio en la semana (lun-dom) que contiene `dia`."""
     lunes = dia - timedelta(days=dia.weekday())
-    desde = datetime.combine(lunes, datetime.min.time())
-    hasta = desde + timedelta(days=7)
+    return lunes, bloques_rango(lunes, lunes + timedelta(days=6))
+
+
+def bloques_rango(d1, d2):
+    """Bloques cerrados con inicio entre las fechas d1 y d2 (inclusive)."""
+    desde = datetime.combine(d1, datetime.min.time())
+    hasta = datetime.combine(d2 + timedelta(days=1), datetime.min.time())
     cfg = cargar_config()
     filas = []
-    for e in leer_eventos():
+    eventos = leer_eventos()
+    # Un evento "motivo" posterior corrige la justificación del bloque con ese inicio.
+    motivos = {e["inicio"]: e["motivo"] for e in eventos if e.get("motivo")}
+    for e in eventos:
         if e["evento"] != "confirma_salida":
             continue
         ini = datetime.fromisoformat(e["inicio"])
@@ -264,10 +278,33 @@ def bloques_semana(dia):
             continue
         if not e.get("fin"):
             filas.append({"fecha": ini.date().isoformat(), "desde": ini.strftime("%H:%M"), "hasta": None,
-                          "minutos": None, "tipo": tipo_extra(ini.date(), cfg), "nota": "salida sin confirmar"})
+                          "minutos": None, "tipo": tipo_extra(ini.date(), cfg), "nota": "salida sin confirmar",
+                          "inicio": e["inicio"], "motivo": motivos.get(e["inicio"], "")})
             continue
         for a, b, tipo in tramos_extra(ini, datetime.fromisoformat(e["fin"]), cfg):
             filas.append({"fecha": a.date().isoformat(), "desde": a.strftime("%H:%M"),
                           "hasta": "24:00" if b.time() == datetime.min.time() and b > a else b.strftime("%H:%M"),
-                          "minutos": int((b - a).total_seconds() // 60), "tipo": tipo, "nota": ""})
-    return lunes, filas
+                          "minutos": int((b - a).total_seconds() // 60), "tipo": tipo, "nota": "",
+                          "inicio": e["inicio"], "motivo": motivos.get(e["inicio"], "")})
+    return filas
+
+
+def poner_motivo(texto, inicio=None):
+    """Justificación de la hora extra abierta o, si no hay, del último bloque cerrado (o del indicado)."""
+    st = cargar_state()
+    if not inicio and st.get("extra"):
+        st["extra"]["motivo"] = texto
+        guardar_state(st)
+        return True, "Motivo guardado para la hora extra abierta desde %s." % st["extra"]["inicio"][11:16]
+    cerrados = [e["inicio"] for e in leer_eventos() if e["evento"] == "confirma_salida"]
+    if inicio:
+        coincide = [i for i in cerrados if i.startswith(inicio)]
+        if not coincide:
+            return False, "No encuentro un bloque que empiece en %s." % inicio
+        inicio = coincide[-1]
+    elif cerrados:
+        inicio = cerrados[-1]
+    else:
+        return False, "No hay horas extras registradas."
+    registrar("motivo", inicio=inicio, motivo=texto)
+    return True, "Motivo guardado para el bloque del %s." % inicio[:16].replace("T", " ")

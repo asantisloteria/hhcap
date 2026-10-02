@@ -34,7 +34,7 @@ $info.Enabled = $false
 [void]$menu.Items.Add("-")
 $menu.Items.Add("Ya marqué entrada").add_Click({ Show-Result (Invoke-HHCap @("marque-entrada")) })
 $menu.Items.Add("Ya marqué salida").add_Click({ Show-Result (Invoke-HHCap @("marque-salida")) })
-$menu.Items.Add("Ver semana").add_Click({
+$menu.Items.Add("Ver mis horas extras").add_Click({
     $f = Join-Path $env:TEMP "hhcap-semana.txt"
     Invoke-HHCap @("reporte", "--semana") | Set-Content -Encoding UTF8 $f
     Start-Process notepad.exe $f

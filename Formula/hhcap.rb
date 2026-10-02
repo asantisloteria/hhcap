@@ -14,7 +14,18 @@ class Hhcap < Formula
       #!/bin/bash
       PYTHONPATH="#{libexec}" exec /usr/bin/python3 -m hhcap "$@"
     SH
-    system "swiftc", "-O", "tray/macos/HHCapMenu.swift", "-o", bin/"hhcap-menu"
+    app = prefix/"HHCap.app/Contents"
+    (app/"MacOS").mkpath
+    (app/"Resources").mkpath
+    system "swiftc", "-O", "tray/macos/HHCapMenu.swift", "-o", app/"MacOS/hhcap-menu"
+    cp "tray/macos/Info.plist", app
+    cp "tray/macos/AppIcon.icns", app/"Resources"
+    system "codesign", "--force", "--sign", "-", prefix/"HHCap.app"
+    # Se abre vía LaunchServices para que macOS reconozca la app (ícono y notificaciones).
+    (bin/"hhcap-menu").write <<~SH
+      #!/bin/bash
+      exec open "#{opt_prefix}/HHCap.app" --args "$@"
+    SH
   end
 
   service do
@@ -24,7 +35,8 @@ class Hhcap < Formula
   end
 
   def caveats
-    <<~EOS
+    banner = (libexec/"hhcap/banner.txt").exist? ? (libexec/"hhcap/banner.txt").read : ""
+    banner + <<~EOS
       1. Configura tu jornada:   hhcap config --jornada lun=08:15-17:45 ... --jornada vie=08:15-13:35
       2. Activa el bloqueo:      hhcap hook install
       3. Indicador al iniciar:   brew services start hhcap

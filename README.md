@@ -12,7 +12,8 @@ La marca la haces siempre tú en la app de GeoVictoria; hhcap solo registra que 
 
 ```bash
 brew tap asantisloteria/hhcap https://github.com/asantisloteria/hhcap.git
-brew install hhcap
+brew trust asantisloteria/hhcap      # Homebrew 7 exige confiar en taps de terceros
+cd ~ && brew install hhcap           # desde ~: el sandbox de brew no puede leer ~/Documents
 hhcap config --jornada lun=08:15-17:45 --jornada mar=08:15-17:45 --jornada mie=08:15-17:45 \
              --jornada jue=08:15-17:45 --jornada vie=08:15-13:35     # tu horario
 hhcap hook install            # activa el bloqueo en Claude Code
@@ -34,11 +35,13 @@ hhcap menu                                    # indicador en la bandeja del sist
 |---|---|
 | Claude Code dice "Fuera de horario" | Marca entrada en GeoVictoria y ejecuta `! hhcap marque-entrada` (o `--a HH:MM` si marcaste antes) |
 | Terminaste | Marca salida en GeoVictoria y ejecuta `hhcap marque-salida` |
-| Ver tu semana | `hhcap reporte --semana` (o `--csv`) |
+| Ver tu semana | Menú 🚬 → «Ver mis horas extras» (tabla, navegar semanas, descargar semana o mes para Excel) |
+| Reporte en terminal | `hhcap reporte` · `--mes` · `--desde/--hasta` · `-o archivo.csv` |
 | Estado actual | `hhcap status` |
 
-Indicador: 🟢 en horario · 🔴 fuera de horario sin marca · 🟡 hora extra abierta (con contador) ·
-🟠 hora extra por cerrar · ⚪️ hhcap no responde.
+Indicador en la barra de menú (pastilla de color):
+🟢 En horario · 🔴 Fuera de horario (late hasta que marques) · 🟡 Extra 50% · 1:25 ·
+🟠 Cierra tu extra · ⚪️ hhcap no responde.
 
 ## Probar sin esperar a la tarde
 

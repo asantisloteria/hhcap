@@ -35,6 +35,11 @@ def _cli(argv):
                           ("marque-salida", "ya marqué salida en GeoVictoria")):
         p = sub.add_parser(nombre, help=ayuda)
         p.add_argument("--a", metavar="HH:MM", help="hora real de la marca (por defecto: ahora)")
+        p.add_argument("--motivo", help="justificación (va al Comentario de SAP)")
+
+    mo = sub.add_parser("motivo", help="justificación de la hora extra abierta o del último bloque")
+    mo.add_argument("texto")
+    mo.add_argument("--bloque", metavar="YYYY-MM-DDTHH:MM", help="inicio del bloque a corregir")
 
     c = sub.add_parser("config", help="ver/editar config.json")
     c.add_argument("--jornada", metavar="DIA=HH:MM-HH:MM", action="append",
@@ -48,6 +53,11 @@ def _cli(argv):
     r.add_argument("--semana", action="store_true", help="semana lun-dom (por defecto)")
     r.add_argument("--fecha", help="un día de la semana a reportar (YYYY-MM-DD); por defecto hoy")
     r.add_argument("--csv", action="store_true")
+    r.add_argument("--mes", action="store_true", help="el mes que contiene --fecha")
+    r.add_argument("--desde", help="YYYY-MM-DD (con --hasta)")
+    r.add_argument("--hasta", help="YYYY-MM-DD")
+    r.add_argument("--json", action="store_true")
+    r.add_argument("-o", "--salida", help="escribe el CSV en este archivo (UTF-8 con BOM, ';', para Excel)")
 
     f = sub.add_parser("festivos", help="lista los festivos del año")
     f.add_argument("--anio", type=int)
@@ -82,7 +92,12 @@ def _cli(argv):
 
     if a.cmd in ("marque-entrada", "marque-salida"):
         fn = core.marcar_entrada if a.cmd == "marque-entrada" else core.marcar_salida
-        ok, msg = fn(a.a)
+        ok, msg = fn(a.a, a.motivo)
+        print(msg)
+        return 0 if ok else 1
+
+    if a.cmd == "motivo":
+        ok, msg = core.poner_motivo(a.texto, a.bloque)
         print(msg)
         return 0 if ok else 1
 
@@ -121,28 +136,55 @@ def _cli(argv):
         return 0
 
     if a.cmd == "reporte":
+        from datetime import timedelta
         dia = date.fromisoformat(a.fecha) if a.fecha else core.ahora().date()
-        lunes, filas = core.bloques_semana(dia)
-        if a.csv:
-            import csv
-            w = csv.writer(sys.stdout)
-            w.writerow(["fecha", "desde", "hasta", "duracion", "tipo", "nota"])
-            for x in filas:
-                w.writerow([x["fecha"], x["desde"], x["hasta"] or "",
-                            core.fmt_min(x["minutos"]) if x["minutos"] is not None else "", x["tipo"], x["nota"]])
+        if a.desde and a.hasta:
+            d1, d2 = date.fromisoformat(a.desde), date.fromisoformat(a.hasta)
+            titulo = "Del %s al %s" % (d1.strftime("%d/%m/%Y"), d2.strftime("%d/%m/%Y"))
+        elif a.mes:
+            d1 = dia.replace(day=1)
+            d2 = (d1 + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+            titulo = "Mes %s" % d1.strftime("%m/%Y")
+        else:
+            d1 = dia - timedelta(days=dia.weekday())
+            d2 = d1 + timedelta(days=6)
+            titulo = "Semana del %s" % d1.strftime("%d/%m/%Y")
+        filas = core.bloques_rango(d1, d2)
+        tot = {"50%": 0, "100%": 0}
+        for x in filas:
+            tot[x["tipo"]] += x["minutos"] or 0
+        if a.json:
+            dias = [(d1 + timedelta(days=i)).isoformat() for i in range((d2 - d1).days + 1)]
+            print(json.dumps({"desde": d1.isoformat(), "hasta": d2.isoformat(), "dias": dias,
+                              "filas": filas, "totales": tot}, ensure_ascii=False))
             return 0
-        print("Semana del %s" % lunes.strftime("%d/%m/%Y"))
+        if a.csv or a.salida:
+            import csv
+            f = open(a.salida, "w", encoding="utf-8-sig", newline="") if a.salida else sys.stdout
+            w = csv.writer(f, delimiter=";")
+            w.writerow(["fecha", "dia", "desde", "hasta", "duracion", "tipo", "motivo", "nota"])
+            for x in filas:
+                d = date.fromisoformat(x["fecha"])
+                w.writerow([d.strftime("%d-%m-%Y"), core.DIAS[d.weekday()], x["desde"], x["hasta"] or "",
+                            core.fmt_min(x["minutos"]) if x["minutos"] is not None else "", x["tipo"], x["motivo"], x["nota"]])
+            w.writerow([])
+            w.writerow(["total 50%", "", "", "", core.fmt_min(tot["50%"]), "", ""])
+            w.writerow(["total 100%", "", "", "", core.fmt_min(tot["100%"]), "", ""])
+            if a.salida:
+                f.close()
+                print("Guardado: %s" % a.salida)
+            return 0
+        print(titulo)
         if not filas:
             print("  (sin horas extras confirmadas)")
-        tot = {}
         for x in filas:
             dur = core.fmt_min(x["minutos"]) if x["minutos"] is not None else "  ?  "
-            print("  %s  %s–%s  %6s  %4s  %s" % (x["fecha"], x["desde"], x["hasta"] or "?????", dur, x["tipo"], x["nota"]))
-            tot[x["tipo"]] = tot.get(x["tipo"], 0) + (x["minutos"] or 0)
-        for t in sorted(tot, key=len):
-            print("  Total %s: %s" % (t, core.fmt_min(tot[t])))
+            print("  %s  %s–%s  %6s  %4s  %s" % (x["fecha"], x["desde"], x["hasta"] or "?????", dur, x["tipo"],
+                                                 " · ".join(v for v in (x["motivo"], x["nota"]) if v)))
+        for t in ("50%", "100%"):
+            if tot[t]:
+                print("  Total %s: %s" % (t, core.fmt_min(tot[t])))
         return 0
-
     if a.cmd == "festivos":
         from .festivos import festivos_chile
         anio = a.anio or core.ahora().year
@@ -171,6 +213,8 @@ def _cli(argv):
         settings = hook.fusionar(settings, cmd) if a.accion == "install" else hook.quitar(settings)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        if a.accion == "install":
+            print(_banner())
         print("%s: %s (respaldo en %s.bak-hhcap)" % ("Hooks instalados" if a.accion == "install" else "Hooks quitados", p, p))
         return 0
 
@@ -201,6 +245,14 @@ def _cli(argv):
         print("Simulando: reloj de hhcap en %s (vence a las %s reales; `hhcap simular --off` para terminar)" % (
             core.ahora().strftime("%a %d/%m %H:%M"), sim["vence"][11:16]))
         return 0
+
+
+def _banner():
+    from pathlib import Path
+    try:
+        return (Path(__file__).parent / "banner.txt").read_text(encoding="utf-8")
+    except OSError:
+        return ""
 
 
 def _texto_estado(st, core):

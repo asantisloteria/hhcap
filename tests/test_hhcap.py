@@ -125,6 +125,31 @@ class Estado(Base):
         self.assertEqual(core.leer_eventos()[-1]["fin"], "2026-10-02T20:10:00")
 
 
+class Motivo(Base):
+    def test_motivo_en_salida_y_correccion(self):
+        self.at("2026-10-02T19:00")
+        core.marcar_entrada()
+        core.poner_motivo("deploy nocturno")
+        self.at("2026-10-03T00:45")
+        core.marcar_salida("00:30")
+        _, filas = core.bloques_semana(date(2026, 10, 2))
+        self.assertEqual({f["motivo"] for f in filas}, {"deploy nocturno"})
+        ok, _ = core.poner_motivo("deploy y rollback nocturno")
+        self.assertTrue(ok)
+        _, filas = core.bloques_semana(date(2026, 10, 2))
+        self.assertEqual({f["motivo"] for f in filas}, {"deploy y rollback nocturno"})
+
+    def test_motivo_por_bloque(self):
+        for ini, fin in (("2026-10-02T19:00", "2026-10-02T20:00"), ("2026-10-03T10:00", "2026-10-03T11:00")):
+            self.at(ini)
+            core.marcar_entrada()
+            self.at(fin)
+            core.marcar_salida(motivo="b" + ini[-5:])
+        core.poner_motivo("corregido", inicio="2026-10-02T19:00")
+        _, filas = core.bloques_semana(date(2026, 10, 2))
+        self.assertEqual([f["motivo"] for f in filas], ["corregido", "b10:00"])
+
+
 class Hooks(Base):
     def test_bloquea_fuera_sin_marca(self):
         self.at("2026-10-02T19:00")

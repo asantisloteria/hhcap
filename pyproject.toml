@@ -16,4 +16,4 @@ hhcap = "hhcap.cli:main"
 packages = ["hhcap"]
 
 [tool.setuptools.package-data]
-hhcap = ["tray/*.ps1"]
+hhcap = ["tray/*.ps1", "banner.txt"]
