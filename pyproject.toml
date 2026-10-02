@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hhcap"
-version = "0.2.0"
+version = "0.2.1"
 description = "Captador de horas extras: gate de Claude Code fuera de horario y registro de marcas GeoVictoria"
 requires-python = ">=3.8"
 dependencies = []

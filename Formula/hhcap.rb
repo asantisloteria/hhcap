@@ -3,7 +3,7 @@
 class Hhcap < Formula
   desc "Captador de horas extras: gate de Claude Code fuera de horario"
   homepage "https://github.com/asantisloteria/hhcap"
-  url "https://github.com/asantisloteria/hhcap.git", tag: "v0.2.0"
+  url "https://github.com/asantisloteria/hhcap.git", tag: "v0.2.1"
   head "https://github.com/asantisloteria/hhcap.git", branch: "main"
 
   depends_on :macos
