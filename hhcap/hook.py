@@ -9,6 +9,7 @@ BLOQUEO = ("{B}{R}⏰ Fuera de horario{X} {A}· horas extras al {tipo}{X}\n"
            "\n"
            "  {V}✔ ¿Ya marcaste en GeoVictoria?{X}   {B}{C}! hhcap marque-entrada{X}\n"
            "  {A}◷ ¿Marcaste a otra hora?{X}         {C}! hhcap marque-entrada --a HH:MM{X}\n"
+           "  {C}☾ ¿No vas a trabajar, solo usar la IA?{X}  {C}! hhcap uso-personal{X}\n"
            "  {G}✘ ¿No has marcado? Hazlo primero en la app de GeoVictoria.{X}")
 
 
@@ -47,7 +48,7 @@ def prompt():
 
 def session():
     """SessionStart: solo avisa, nunca bloquea."""
-    from .core import EXTRA_ABIERTA, EXTRA_POR_CERRAR, FUERA_SIN_MARCA, calcular, fmt_min
+    from .core import EXTRA_ABIERTA, EXTRA_POR_CERRAR, FUERA_SIN_MARCA, USO_PERSONAL, calcular, fmt_min
     _leer_stdin()
     r = calcular()
     msg = None
@@ -57,6 +58,9 @@ def session():
         msg = "🟡 Hora extra abierta desde %s (%s)." % (r["extra"]["inicio"][11:16], fmt_min(r["minutos"]))
     elif r["estado"] == EXTRA_POR_CERRAR:
         msg = "🟠 Hora extra pendiente de cierre: marca salida en GeoVictoria y ejecuta `! hhcap marque-salida`."
+    elif r["estado"] == USO_PERSONAL:
+        msg = ("🔵 Uso personal hasta las %s: la IA no cuenta como hora extra. "
+               "Si vas a trabajar, marca entrada y ejecuta `! hhcap marque-entrada`." % r["personal"]["hasta"][11:16])
     if r.get("aviso"):
         msg = (msg + "\n" if msg else "") + r["aviso"]
     if msg:

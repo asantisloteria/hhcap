@@ -74,10 +74,12 @@ class Estado(Base):
             self.assertEqual(core.calcular()["estado"], e, t)
 
     def test_tipo(self):
+        # Antes un día no hábil iba al 100%. SAP dice otra cosa: sábado común y
+        # feriado no irrenunciable van al 50%. Ver la clase Recargo.
         cfg = core.cargar_config()
         self.assertEqual(core.tipo_extra(date(2026, 10, 2), cfg), "50%")
-        self.assertEqual(core.tipo_extra(date(2026, 10, 3), cfg), "100%")
-        self.assertEqual(core.tipo_extra(date(2026, 10, 12), cfg), "100%")
+        self.assertEqual(core.tipo_extra(date(2026, 10, 3), cfg), "50%")
+        self.assertEqual(core.tipo_extra(date(2026, 10, 12), cfg), "50%")
 
     def test_ciclo_y_tramos(self):
         self.at("2026-10-02T19:00")
@@ -89,7 +91,15 @@ class Estado(Base):
         self.assertTrue(ok)
         _, filas = core.bloques_semana(date(2026, 10, 2))
         self.assertEqual([(f["fecha"], f["minutos"], f["tipo"]) for f in filas],
-                         [("2026-10-02", 305, "50%"), ("2026-10-03", 40, "100%")])
+                         [("2026-10-02", 305, "50%"), ("2026-10-03", 40, "50%")])
+
+    def test_tramo_cruza_a_irrenunciable(self):
+        # Lo que la prueba de arriba cubría con el sábado: un bloque que cruza la
+        # medianoche hacia un día al 100% se parte y cambia de tipo. 18-sep-2026
+        # es viernes e irrenunciable.
+        cfg = core.cargar_config()
+        t = core.tramos_extra(datetime(2026, 9, 17, 22, 0), datetime(2026, 9, 18, 1, 0), cfg)
+        self.assertEqual([(a.day, b.hour, tipo) for a, b, tipo in t], [(17, 0, "50%"), (18, 1, "100%")])
 
     def test_tramo_excluye_jornada(self):
         cfg = core.cargar_config()
@@ -185,6 +195,129 @@ class Hooks(Base):
         self.assertEqual(cmds, ["otro", "/y/hhcap hook prompt"])
         s = hook.quitar(s)
         self.assertEqual(s, {"model": "opus", "hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "otro"}]}]}})
+
+
+class Recargo(Base):
+    """El 100% es para irrenunciables y Semana Santa, como lo paga SAP."""
+
+    def tipo(self, iso):
+        return core.tipo_extra(date.fromisoformat(iso), core.cargar_config())
+
+    def test_irrenunciables_al_100(self):
+        for d in ["2026-01-01", "2026-05-01", "2026-09-18", "2026-09-19", "2026-12-25"]:
+            self.assertEqual(self.tipo(d), "100%", d)
+
+    def test_semana_santa_al_100(self):
+        # Pascua 2026: domingo 5 de abril.
+        for d in ["2026-04-03", "2026-04-04", "2026-04-05"]:
+            self.assertEqual(self.tipo(d), "100%", d)
+        self.assertEqual(self.tipo("2026-04-06"), "50%")  # el lunes siguiente no
+
+    def test_lo_demas_al_50(self):
+        for d in ["2026-10-03",   # sábado común
+                  "2026-10-04",   # domingo común
+                  "2026-10-12",   # feriado que no es irrenunciable
+                  "2026-09-20",   # domingo después de Fiestas Patrias
+                  "2026-09-22"]:  # día hábil
+            self.assertEqual(self.tipo(d), "50%", d)
+
+    def test_dias_extra_y_domingo_configurables(self):
+        cfg = core.cargar_config()
+        cfg["dias_100_extra"] = ["2026-11-15"]  # p. ej. una elección
+        cfg["domingo_100"] = True
+        core.guardar_config(cfg)
+        self.assertEqual(self.tipo("2026-11-15"), "100%")
+        self.assertEqual(self.tipo("2026-10-04"), "100%")
+        self.assertEqual(self.tipo("2026-10-03"), "50%")
+
+
+class UsoPersonal(Base):
+    """«No voy a trabajar, pero voy a usar la IA.»"""
+
+    def test_fuera_de_horario_deja_pasar_sin_contar(self):
+        self.at("2026-10-03T18:30")
+        self.assertIsNotNone(self.hook("prompt"))  # sin marca: bloquea
+        ok, _ = core.activar_personal()
+        self.assertTrue(ok)
+        self.assertEqual(core.calcular()["estado"], core.USO_PERSONAL)
+        self.assertIsNone(self.hook("prompt"))     # deja pasar, sin mensaje
+        _, filas = core.bloques_semana(date(2026, 10, 3))
+        self.assertEqual(filas, [])                # y no cuenta nada
+
+    def test_vence_y_vuelve_a_preguntar(self):
+        self.at("2026-10-03T18:30")
+        core.activar_personal(hasta="20:00")
+        self.at("2026-10-03T19:59")
+        self.assertEqual(core.calcular()["estado"], core.USO_PERSONAL)
+        self.at("2026-10-03T20:00")
+        self.assertEqual(core.calcular()["estado"], core.FUERA_SIN_MARCA)
+
+    def test_por_omision_dura_hasta_fin_del_dia(self):
+        self.at("2026-10-03T18:30")
+        core.activar_personal()
+        self.at("2026-10-03T23:59")
+        self.assertEqual(core.calcular()["estado"], core.USO_PERSONAL)
+        self.at("2026-10-04T00:00")
+        self.assertEqual(core.calcular()["estado"], core.FUERA_SIN_MARCA)
+
+    def test_hasta_una_hora_ya_pasada_es_de_manana(self):
+        self.at("2026-10-03T23:00")
+        core.activar_personal(hasta="01:00")
+        self.at("2026-10-04T00:30")
+        self.assertEqual(core.calcular()["estado"], core.USO_PERSONAL)
+
+    def test_no_pisa_una_extra_abierta(self):
+        self.at("2026-10-03T18:30")
+        core.marcar_entrada("18:22")
+        ok, msg = core.activar_personal()
+        self.assertFalse(ok)
+        self.assertIn("descartar-extra", msg)
+        self.assertEqual(core.calcular()["estado"], core.EXTRA_ABIERTA)
+
+    def test_descartar_la_extra_abierta_no_la_reporta(self):
+        self.at("2026-10-03T18:30")
+        core.marcar_entrada("18:22")
+        ok, _ = core.activar_personal(descartar_extra=True)
+        self.assertTrue(ok)
+        self.assertEqual(core.calcular()["estado"], core.USO_PERSONAL)
+        _, filas = core.bloques_semana(date(2026, 10, 3))
+        self.assertEqual(filas, [])
+        self.assertIn("descarta_extra", [e["evento"] for e in core.leer_eventos()])
+
+    def test_en_jornada_no_aplica(self):
+        self.at("2026-10-01T10:00")
+        ok, _ = core.activar_personal()
+        self.assertFalse(ok)
+
+    def test_marcar_entrada_termina_el_uso_personal(self):
+        self.at("2026-10-03T18:30")
+        core.activar_personal()
+        ok, _ = core.marcar_entrada()
+        self.assertTrue(ok)
+        self.assertEqual(core.calcular()["estado"], core.EXTRA_ABIERTA)
+        self.at("2026-10-03T19:30")
+        core.marcar_salida()
+        self.assertEqual(core.calcular()["estado"], core.FUERA_SIN_MARCA)
+
+    def test_terminar_a_mano(self):
+        self.at("2026-10-03T18:30")
+        core.activar_personal()
+        ok, _ = core.desactivar_personal()
+        self.assertTrue(ok)
+        self.assertEqual(core.calcular()["estado"], core.FUERA_SIN_MARCA)
+        ok, _ = core.desactivar_personal()
+        self.assertFalse(ok)
+
+    def test_el_bloqueo_ofrece_la_salida(self):
+        self.at("2026-10-03T18:30")
+        out = self.hook("prompt")
+        self.assertIn("hhcap uso-personal", out["stopReason"])
+
+    def test_session_avisa_que_no_cuenta(self):
+        self.at("2026-10-03T18:30")
+        core.activar_personal(hasta="21:00")
+        out = self.hook("session")
+        self.assertIn("Uso personal hasta las 21:00", out["systemMessage"])
 
 
 if __name__ == "__main__":

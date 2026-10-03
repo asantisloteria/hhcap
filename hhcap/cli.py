@@ -37,6 +37,13 @@ def _cli(argv):
         p.add_argument("--a", metavar="HH:MM", help="hora real de la marca (por defecto: ahora)")
         p.add_argument("--motivo", help="justificación (va al Comentario de SAP)")
 
+    up = sub.add_parser("uso-personal", help="no voy a trabajar, pero voy a usar la IA: no bloquea ni cuenta")
+    up.add_argument("--hasta", metavar="HH:MM", help="hasta qué hora (por defecto: fin del día)")
+    up.add_argument("--horas", type=float, help="por cuántas horas")
+    up.add_argument("--descartar-extra", action="store_true",
+                    help="descarta la hora extra abierta: no se trabajó y no debe aparecer en el reporte")
+    up.add_argument("--off", action="store_true", help="termina el uso personal")
+
     mo = sub.add_parser("motivo", help="justificación de la hora extra abierta o del último bloque")
     mo.add_argument("texto")
     mo.add_argument("--bloque", metavar="YYYY-MM-DDTHH:MM", help="inicio del bloque a corregir")
@@ -46,6 +53,9 @@ def _cli(argv):
                    help="ej. vie=08:15-13:35; DIA= (vacío) lo deja como no hábil")
     c.add_argument("--festivo", metavar="YYYY-MM-DD", action="append", help="agrega festivo extra")
     c.add_argument("--no-festivo", metavar="YYYY-MM-DD", action="append", help="anula un festivo calculado")
+    c.add_argument("--dia-100", metavar="YYYY-MM-DD", action="append",
+                   help="día con recargo del 100%% además de irrenunciables y Semana Santa (p. ej. elecciones)")
+    c.add_argument("--domingo-100", choices=["si", "no"], help="si el domingo común va al 100%%")
     c.add_argument("--set", metavar="CLAVE=VALOR", action="append", help="idle_minutos, extra_max_horas")
     c.add_argument("--path", action="store_true", help="muestra la carpeta de datos")
 
@@ -96,6 +106,14 @@ def _cli(argv):
         print(msg)
         return 0 if ok else 1
 
+    if a.cmd == "uso-personal":
+        if a.off:
+            ok, msg = core.desactivar_personal()
+        else:
+            ok, msg = core.activar_personal(a.hasta, a.horas, a.descartar_extra)
+        print(msg)
+        return 0 if ok else 1
+
     if a.cmd == "motivo":
         ok, msg = core.poner_motivo(a.texto, a.bloque)
         print(msg)
@@ -123,6 +141,13 @@ def _cli(argv):
         for d in a.no_festivo or []:
             date.fromisoformat(d)
             cfg["festivos_quitar"] = sorted(set(cfg["festivos_quitar"]) | {d})
+            cambiado = True
+        for d in a.dia_100 or []:
+            date.fromisoformat(d)
+            cfg["dias_100_extra"] = sorted(set(cfg.get("dias_100_extra", [])) | {d})
+            cambiado = True
+        if a.domingo_100:
+            cfg["domingo_100"] = a.domingo_100 == "si"
             cambiado = True
         for kv in a.set or []:
             k, _, v = kv.partition("=")
@@ -258,18 +283,22 @@ def _banner():
 
 def _texto_estado(st, core):
     iconos = {core.EN_HORARIO: "🟢 En horario", core.FUERA_SIN_MARCA: "🔴 Fuera de horario, sin marca",
-              core.EXTRA_ABIERTA: "🟡 Hora extra abierta", core.EXTRA_POR_CERRAR: "🟠 Hora extra por cerrar"}
+              core.EXTRA_ABIERTA: "🟡 Hora extra abierta", core.EXTRA_POR_CERRAR: "🟠 Hora extra por cerrar",
+              core.USO_PERSONAL: "🔵 Uso personal: la IA no cuenta como hora extra"}
     lineas = [iconos[st["estado"]]]
     if core.simulacion():
         lineas[0] += "  [SIMULADO %s]" % st["ahora"][11:16]
     if st.get("jornada"):
         lineas.append("Jornada hoy: %s–%s" % tuple(st["jornada"]))
     else:
-        lineas.append("Hoy no es día hábil (horas al 100%)")
+        lineas.append("Hoy no es día hábil (horas al %s)" % st["tipo"])
     if st["estado"] in (core.EXTRA_ABIERTA, core.EXTRA_POR_CERRAR):
         lineas.append("Desde %s (%s, %s)" % (st["extra"]["inicio"][11:16], core.fmt_min(st["minutos"]), st["tipo"]))
     if st["estado"] == core.FUERA_SIN_MARCA:
         lineas.append("Marca entrada en GeoVictoria y ejecuta: hhcap marque-entrada")
+        lineas.append("¿Solo vas a usar la IA, sin trabajar? hhcap uso-personal")
+    if st["estado"] == core.USO_PERSONAL:
+        lineas.append("Hasta las %s · termina con: hhcap uso-personal --off" % st["personal"]["hasta"][11:16])
     if st.get("aviso"):
         lineas.append("⚠ " + st["aviso"])
     return "\n".join(lineas)

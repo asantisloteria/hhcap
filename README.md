@@ -35,13 +35,30 @@ hhcap menu                                    # indicador en la bandeja del sist
 |---|---|
 | Claude Code dice "Fuera de horario" | Marca entrada en GeoVictoria y ejecuta `! hhcap marque-entrada` (o `--a HH:MM` si marcaste antes) |
 | Terminaste | Marca salida en GeoVictoria y ejecuta `hhcap marque-salida` |
+| No vas a trabajar, solo usar la IA | `! hhcap uso-personal` (hasta el fin del día; `--hasta HH:MM` o `--horas N`). No bloquea ni cuenta. Termina con `--off` o al marcar entrada |
+| Abriste una extra que no trabajaste | `hhcap uso-personal --descartar-extra`: la descarta y no aparece en ningún reporte |
 | Ver tu semana | Menú 🚬 → «Ver mis horas extras» (tabla, navegar semanas, descargar semana o mes para Excel) |
 | Reporte en terminal | `hhcap reporte` · `--mes` · `--desde/--hasta` · `-o archivo.csv` |
 | Estado actual | `hhcap status` |
 
 Indicador en la barra de menú (pastilla de color):
 🟢 En horario · 🔴 Fuera de horario (late hasta que marques) · 🟡 Extra 50% · 1:25 ·
-🟠 Cierra tu extra · ⚪️ hhcap no responde.
+🟠 Cierra tu extra · 🔵 Uso personal · ⚪️ hhcap no responde.
+
+## 50% o 100%
+
+Manda SAP, que es donde se pagan. Al guardar horas en SuccessFactors aparece el aviso: «los días
+festivos irrenunciables, y semana santa (viernes, sábado y domingo) les aplica recargo del 100%».
+Así que:
+
+| Día | Recargo |
+|---|---|
+| Irrenunciables: 1 ene, 1 may, 18 y 19 sep, 25 dic | 100% |
+| Semana Santa: viernes, sábado y domingo | 100% |
+| Todo lo demás: días hábiles, sábados y domingos comunes, feriados que no son irrenunciables | 50% |
+
+Un irrenunciable por elecciones se agrega con `hhcap config --dia-100 2026-11-15`. Si Recursos
+Humanos confirma que el domingo común va al 100%: `hhcap config --domingo-100 si`.
 
 ## Probar sin esperar a la tarde
 

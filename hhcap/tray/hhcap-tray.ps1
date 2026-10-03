@@ -23,6 +23,7 @@ $icons = @{
     extra_abierta    = New-Dot ([System.Drawing.Color]::FromArgb(212, 167, 44))
     extra_por_cerrar = New-Dot ([System.Drawing.Color]::FromArgb(219, 109, 40))
     fuera_sin_marca  = New-Dot ([System.Drawing.Color]::FromArgb(207, 34, 46))
+    uso_personal     = New-Dot ([System.Drawing.Color]::FromArgb(51, 120, 217))
     error            = New-Dot ([System.Drawing.Color]::Gray)
 }
 
@@ -57,6 +58,7 @@ function Update-Status {
             "en_horario"       { "En horario" }
             "extra_abierta"    { "Hora extra $($j.tipo) abierta: $reloj" }
             "extra_por_cerrar" { "Inactivo: marca salida en GeoVictoria ($reloj)" }
+            "uso_personal"     { "Uso personal: no cuenta como hora extra" }
             default            { "Fuera de horario ($($j.tipo)) sin marca" }
         }
         $tray.Icon = $icons[$j.estado]

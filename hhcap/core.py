@@ -5,7 +5,7 @@ import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from .festivos import festivos_chile
+from .festivos import festivos_chile, irrenunciables, semana_santa
 
 DIAS = ["lun", "mar", "mie", "jue", "vie", "sab", "dom"]
 
@@ -21,12 +21,18 @@ CONFIG_DEFAULT = {
     "festivos_quitar": [],
     "idle_minutos": 15,
     "extra_max_horas": 14,
+    # Días al 100% además de irrenunciables y Semana Santa (p. ej. elecciones).
+    "dias_100_extra": [],
+    # Si Recursos Humanos confirma que el domingo común va al 100%, se activa acá.
+    "domingo_100": False,
 }
 
 EN_HORARIO = "en_horario"
 FUERA_SIN_MARCA = "fuera_sin_marca"
 EXTRA_ABIERTA = "extra_abierta"
 EXTRA_POR_CERRAR = "extra_por_cerrar"
+# Fuera de horario, usando la IA para algo que no es trabajo: no bloquea ni cuenta.
+USO_PERSONAL = "uso_personal"
 
 
 def home():
@@ -125,7 +131,14 @@ def jornada_del_dia(d, cfg):
 
 
 def tipo_extra(d, cfg):
-    return "50%" if cfg["jornada"].get(DIAS[d.weekday()]) and not es_festivo(d, cfg) else "100%"
+    """50% o 100%, como lo paga SAP. Ver la nota de festivos.irrenunciables."""
+    if d in irrenunciables(d.year) or d in semana_santa(d.year):
+        return "100%"
+    if d.isoformat() in cfg.get("dias_100_extra", []):
+        return "100%"
+    if cfg.get("domingo_100") and d.weekday() == 6:
+        return "100%"
+    return "50%"
 
 
 def en_jornada(t, cfg):
@@ -181,9 +194,68 @@ def calcular(t=None, cfg=None, st=None):
     elif extra:
         r["estado"] = EXTRA_POR_CERRAR if extra.get("por_cerrar") else EXTRA_ABIERTA
         r["minutos"] = int((t - datetime.fromisoformat(extra["inicio"])).total_seconds() // 60)
+    elif personal_activo(st, t):
+        r["estado"] = USO_PERSONAL
+        r["personal"] = st["personal"]
     else:
         r["estado"] = FUERA_SIN_MARCA
     return r
+
+
+# --- Uso personal ----------------------------------------------------------
+#
+# «No voy a trabajar, pero voy a usar la IA.» Fuera de horario el hook asume que
+# todo uso de Claude es trabajo y bloquea hasta que se marque entrada. Eso deja
+# sin salida a quien solo la quiere para algo personal: o marca una hora extra
+# que no es, o no la usa. Este modo deja pasar sin contar nada, hasta una hora
+# dada, y queda en el registro de eventos para que se pueda auditar.
+
+def personal_activo(st, t):
+    """El modo de uso personal vigente a la hora t, o None."""
+    p = st.get("personal")
+    if not p:
+        return None
+    return p if t < datetime.fromisoformat(p["hasta"]) else None
+
+
+def activar_personal(hasta=None, horas=None, descartar_extra=False):
+    t = ahora()
+    cfg, st = cargar_config(), cargar_state()
+    if en_jornada(t, cfg):
+        return False, "Estás dentro de la jornada: el uso de la IA no cuenta como hora extra."
+    extra = st.get("extra")
+    if extra and not descartar_extra:
+        return False, ("Hay una hora extra abierta desde %s. Ciérrala con `hhcap marque-salida` si la "
+                       "trabajaste, o descártala con `hhcap uso-personal --descartar-extra` si no."
+                       % extra["inicio"][11:16])
+    if extra:
+        # Se descarta: no se registra como salida, así que no aparece en ningún reporte.
+        registrar("descarta_extra", inicio=extra["inicio"])
+        st["extra"] = None
+    if horas:
+        fin = t + timedelta(hours=float(horas))
+    elif hasta:
+        fin = _hm(hasta, t.date())
+        if fin <= t:
+            fin += timedelta(days=1)
+    else:
+        # Por omisión, hasta el fin del día: la noche siguiente vuelve a preguntar.
+        fin = datetime.combine(t.date() + timedelta(days=1), datetime.min.time())
+    st["personal"] = {"desde": t.isoformat(), "hasta": fin.isoformat()}
+    guardar_state(st)
+    registrar("personal_inicio", hasta=fin.isoformat())
+    aviso = " Se descartó la hora extra abierta desde %s." % extra["inicio"][11:16] if extra else ""
+    return True, "Uso personal hasta las %s: la IA no cuenta como hora extra.%s" % (fin.strftime("%H:%M"), aviso)
+
+
+def desactivar_personal():
+    st = cargar_state()
+    if not st.get("personal"):
+        return False, "No hay uso personal activo."
+    st["personal"] = None
+    guardar_state(st)
+    registrar("personal_fin")
+    return True, "Uso personal terminado."
 
 
 def _parse_hora(s, t):
@@ -206,6 +278,10 @@ def marcar_entrada(hora=None, motivo=None):
     if en_jornada(inicio, cfg) and en_jornada(t, cfg):
         return False, "Estás dentro de la jornada; no corresponde abrir hora extra."
     st["extra"] = {"inicio": inicio.isoformat(), "confirmado_en": t.isoformat()}
+    if st.get("personal"):
+        # Marcar entrada es decir «ahora sí trabajo»: el uso personal termina ahí.
+        st["personal"] = None
+        registrar("personal_fin", por="marque-entrada")
     if motivo:
         st["extra"]["motivo"] = motivo
     guardar_state(st)

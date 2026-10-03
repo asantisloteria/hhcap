@@ -57,6 +57,9 @@ struct Estilo {
         case "extra_por_cerrar":
             return Estilo(titulo: "Cierra tu extra", simbolo: "hourglass",
                           fondo: NSColor(srgbRed: 0.96, green: 0.45, blue: 0.10, alpha: 1), tinta: .white)
+        case "uso_personal":
+            return Estilo(titulo: "Uso personal", simbolo: "cup.and.saucer.fill",
+                          fondo: NSColor(srgbRed: 0.20, green: 0.47, blue: 0.85, alpha: 1), tinta: .white)
         case "fuera_sin_marca":
             return Estilo(titulo: "Fuera de horario", simbolo: "moon.fill",
                           fondo: NSColor(srgbRed: 0.90, green: 0.24, blue: 0.27, alpha: 1), tinta: .white)
@@ -167,7 +170,7 @@ final class App: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelega
     var ultimoBloqueo: Date?
     let bloqueoURL = URL(fileURLWithPath: NSHomeDirectory() + "/.hhcap/bloqueo.json")
     var ventana: VentanaHoras?
-    var itemEntrada: NSMenuItem?, itemSalida: NSMenuItem?
+    var itemEntrada: NSMenuItem?, itemSalida: NSMenuItem?, itemPersonal: NSMenuItem?, itemFinPersonal: NSMenuItem?
 
     func applicationDidFinishLaunching(_ n: Notification) {
         let m = NSMenu()
@@ -179,6 +182,8 @@ final class App: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelega
         m.addItem(.separator())
         itemEntrada = agregar(m, "Ya marqué entrada", "arrow.right.circle", #selector(entrada), "e")
         itemSalida = agregar(m, "Ya marqué salida", "arrow.left.circle", #selector(salida), "s")
+        itemPersonal = agregar(m, "No voy a trabajar, solo usar la IA", "cup.and.saucer", #selector(personal), "p")
+        itemFinPersonal = agregar(m, "Terminar uso personal", "xmark.circle", #selector(finPersonal), "")
         agregar(m, "Justificación…", "text.bubble", #selector(motivo), "j")
         m.addItem(.separator())
         agregar(m, "Ver mis horas extras", "tablecells", #selector(verHoras), "r")
@@ -342,6 +347,11 @@ final class App: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelega
         case "extra_abierta":
             texto = "Extra \(tipo) · \(r)"
             tarjeta.poner(st, titulo: "Hora extra \(tipo)", detalle: "Desde las \(desde)", numero: horasMinutos(mins), leyenda: "acumulado")
+        case "uso_personal":
+            let p = j["personal"] as? [String: Any]
+            let hasta = (p?["hasta"] as? String).map { String($0.dropFirst(11).prefix(5)) } ?? ""
+            texto = "Uso personal"
+            tarjeta.poner(st, titulo: "Uso personal", detalle: "Hasta las \(hasta) · no cuenta como hora extra")
         case "extra_por_cerrar":
             texto = "Cierra tu extra · \(r)"
             tarjeta.poner(st, titulo: "¿Terminaste?", detalle: "Marca salida en GeoVictoria", numero: horasMinutos(mins), leyenda: "acumulado")
@@ -353,6 +363,8 @@ final class App: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelega
         // Solo la acción que corresponde al estado. En horario no se marca nada, salvo cerrar una extra olvidada.
         let hayExtra = extra != nil
         itemEntrada?.isHidden = e != "fuera_sin_marca"
+        itemPersonal?.isHidden = e != "fuera_sin_marca"
+        itemFinPersonal?.isHidden = e != "uso_personal"
         itemSalida?.isHidden = !hayExtra
         pintar()
     }
@@ -365,6 +377,10 @@ final class App: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelega
     }
 
     @objc func entrada() { mostrar(run(["marque-entrada"]).1) }
+
+    @objc func personal() { mostrar(run(["uso-personal"]).1) }
+
+    @objc func finPersonal() { mostrar(run(["uso-personal", "--off"]).1) }
 
     @objc func salida() {
         guard let m = pedirTexto(titulo: "Marcar salida",

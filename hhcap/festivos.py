@@ -82,3 +82,25 @@ def festivos_chile(y):
     if date(y, 9, 20).weekday() == 4:
         fs[date(y, 9, 20)] = "Fiestas Patrias"
     return fs
+
+
+# --- Recargo del 100% ---------------------------------------------------------
+#
+# En la Lotería el 100% NO es "todo día no hábil". Al guardar horas en SAP
+# SuccessFactors aparece el aviso: «los días festivos irrenunciables, y semana
+# santa (viernes, sábado y domingo) les aplica recargo del 100% a las horas
+# trabajadas». Todo lo demás —un sábado o un domingo común, un feriado que no es
+# irrenunciable— va al 50%. Manda SAP, que es donde se pagan.
+
+def irrenunciables(y):
+    """Feriados irrenunciables nacionales fijos (Ley 19.973 y siguientes).
+
+    Los irrenunciables por elecciones dependen del calendario electoral y se
+    agregan en config.json (`dias_100_extra`)."""
+    return {date(y, 1, 1), date(y, 5, 1), date(y, 9, 18), date(y, 9, 19), date(y, 12, 25)}
+
+
+def semana_santa(y):
+    """Viernes, sábado y domingo de Semana Santa."""
+    p = _pascua(y)
+    return {p - timedelta(days=2), p - timedelta(days=1), p}
